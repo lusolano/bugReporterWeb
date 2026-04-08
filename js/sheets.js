@@ -77,9 +77,12 @@ export const Sheets = {
 
     const row = [numero, fecha, reportedBy || '', ubicacion, comentario, fotoCell, 'Ingresado', ''];
 
+    // NOTE: appending requires the :append suffix on the endpoint.
+    // Without it, the POST hits an invalid URL and the CORS preflight
+    // fails with "Failed to fetch" in the browser.
     const range = encodeURIComponent(`'${sheetName}'!A:H`);
     await apiFetch(
-      `${BASE}/${spreadsheetId}/values/${range}?valueInputOption=USER_ENTERED`,
+      `${BASE}/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
       { method: 'POST', body: JSON.stringify({ values: [row] }) }
     );
   },
