@@ -300,12 +300,18 @@ async function toggleRecording() {
       try {
         const transcript = await Speech.recognize();
         handleTranscript(transcript);
-      } catch {
-        // Recognition ended; audio may still be recording
+      } catch (e) {
+        // Surface real errors so the user knows why nothing was transcribed.
+        // Silence "no-speech" (user just didn't say anything) and "aborted".
+        if (e.message && e.message !== 'no-speech' && e.message !== 'aborted') {
+          showToast('Error de voz: ' + e.message, 'error');
+        }
       }
       await stopRecordingFinal();
+    } else {
+      showToast('Este navegador no soporta reconocimiento de voz. Escriba el comentario manualmente.', 'error');
+      await stopRecordingFinal();
     }
-    // On iOS or unsupported: user must stop manually
   } else {
     await stopRecordingFinal();
   }
@@ -327,8 +333,16 @@ function handleTranscript(text) {
   $('report-raw-transcript').textContent = text;
   $('report-transcription-card').style.display = 'block';
 
-  if (parsed.ubicacion)  $('report-field-ubicacion').value  = parsed.ubicacion;
-  if (parsed.comentario) $('report-field-comentario').value = parsed.comentario;
+  if (parsed.ubicacion) {
+    $('report-field-ubicacion').value = parsed.ubicacion;
+  }
+  if (parsed.comentario) {
+    $('report-field-comentario').value = parsed.comentario;
+  } else if (!parsed.ubicacion) {
+    // No keywords detected — drop the entire transcript into Comentario
+    // so the user at least gets something useful and can edit it.
+    $('report-field-comentario').value = text;
+  }
 }
 
 async function submitReport() {

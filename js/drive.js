@@ -77,25 +77,42 @@ export const Drive = {
     return { id: created.id, name };
   },
 
-  // ── Upload (multipart) ────────────────────────────────────────────────────
+  // ── Upload (two-step: create metadata, then PATCH content) ───────────────
+  // NOTE: We can't use FormData + uploadType=multipart because FormData sets
+  // Content-Type to multipart/form-data, but Drive requires multipart/related.
+  // Two-step is simpler and works reliably in all browsers.
   async uploadFile(file, fileName, parentFolderId) {
     const token = await Auth.getAccessToken();
-    const metadata = JSON.stringify({ name: fileName, parents: [parentFolderId] });
 
-    const form = new FormData();
-    form.append('metadata', new Blob([metadata], { type: 'application/json' }));
-    form.append('file', file);
-
-    const resp = await fetch(`${UPLOAD}/files?uploadType=multipart&fields=id,name,webViewLink`, {
+    // Step 1: Create file metadata (returns the file ID).
+    const createResp = await fetch(`${BASE}/files?fields=id,name`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: fileName, parents: [parentFolderId] }),
     });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => '');
-      throw new Error(`Upload failed (${resp.status}): ${body}`);
+    if (!createResp.ok) {
+      const body = await createResp.text().catch(() => '');
+      throw new Error(`Create file failed (${createResp.status}): ${body}`);
     }
-    return resp.json();  // {id, name, webViewLink}
+    const created = await createResp.json();  // {id, name}
+
+    // Step 2: Upload the raw file contents into that file ID.
+    const uploadResp = await fetch(`${UPLOAD}/files/${created.id}?uploadType=media&fields=id,name,webViewLink`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      body: file,
+    });
+    if (!uploadResp.ok) {
+      const body = await uploadResp.text().catch(() => '');
+      throw new Error(`Upload content failed (${uploadResp.status}): ${body}`);
+    }
+    return uploadResp.json();  // {id, name, webViewLink}
   },
 
   uploadImage(file, parentFolderId) {
