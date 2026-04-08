@@ -333,16 +333,8 @@ function handleTranscript(text) {
   $('report-raw-transcript').textContent = text;
   $('report-transcription-card').style.display = 'block';
 
-  if (parsed.ubicacion) {
-    $('report-field-ubicacion').value = parsed.ubicacion;
-  }
-  if (parsed.comentario) {
-    $('report-field-comentario').value = parsed.comentario;
-  } else if (!parsed.ubicacion) {
-    // No keywords detected — drop the entire transcript into Comentario
-    // so the user at least gets something useful and can edit it.
-    $('report-field-comentario').value = text;
-  }
+  if (parsed.ubicacion)  $('report-field-ubicacion').value  = parsed.ubicacion;
+  if (parsed.comentario) $('report-field-comentario').value = parsed.comentario;
 }
 
 async function submitReport() {
