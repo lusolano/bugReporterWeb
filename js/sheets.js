@@ -29,19 +29,19 @@ export const Sheets = {
    * Only writes headers if the sheet is completely empty.
    */
   async ensureHeaders(spreadsheetId, sheetName) {
-    const range = encodeURIComponent(`'${sheetName}'!A1:G1`);
+    const range = encodeURIComponent(`'${sheetName}'!A1:H1`);
     const data  = await apiFetch(`${BASE}/${spreadsheetId}/values/${range}`);
     if (data.values?.length) return;  // headers already present
 
     const headers = [
-      ['Número', 'Fecha Registro', 'Ubicación', 'Comentario', 'Foto', 'Resolución', 'Comentario Resolución'],
+      ['Número', 'Fecha Registro', 'Reportado por', 'Ubicación', 'Comentario', 'Foto', 'Resolución', 'Comentario Resolución'],
     ];
     await apiFetch(
       `${BASE}/${spreadsheetId}/values/${range}?valueInputOption=USER_ENTERED`,
       { method: 'PUT', body: JSON.stringify({ values: headers }) }
     );
 
-    // Apply dropdown validation on the "Resolución" column (F)
+    // Apply dropdown validation on the "Resolución" column (G)
     await this._addResolutionValidation(spreadsheetId, sheetName);
   },
 
@@ -49,11 +49,12 @@ export const Sheets = {
    * Appends a report row.
    * @param {object} params
    *   spreadsheetId, sheetName,
+   *   reportedBy,
    *   ubicacion, comentario,
    *   photoFileId  (optional),
    *   videoFileId  (optional)
    */
-  async appendReport({ spreadsheetId, sheetName, ubicacion, comentario, photoFileId, videoFileId }) {
+  async appendReport({ spreadsheetId, sheetName, reportedBy, ubicacion, comentario, photoFileId, videoFileId }) {
     // Auto-number: count existing rows
     const countRange = encodeURIComponent(`'${sheetName}'!A:A`);
     const countData  = await apiFetch(`${BASE}/${spreadsheetId}/values/${countRange}`);
@@ -74,9 +75,9 @@ export const Sheets = {
       fotoCell = `https://drive.google.com/file/d/${videoFileId}/view`;
     }
 
-    const row = [numero, fecha, ubicacion, comentario, fotoCell, 'Ingresado', ''];
+    const row = [numero, fecha, reportedBy || '', ubicacion, comentario, fotoCell, 'Ingresado', ''];
 
-    const range = encodeURIComponent(`'${sheetName}'!A:G`);
+    const range = encodeURIComponent(`'${sheetName}'!A:H`);
     await apiFetch(
       `${BASE}/${spreadsheetId}/values/${range}?valueInputOption=USER_ENTERED`,
       { method: 'POST', body: JSON.stringify({ values: [row] }) }
@@ -97,8 +98,8 @@ export const Sheets = {
             sheetId,
             startRowIndex: 1,   // skip header
             endRowIndex: 1000,
-            startColumnIndex: 5, // column F (0-indexed)
-            endColumnIndex: 6,
+            startColumnIndex: 6, // column G (0-indexed) — Resolución
+            endColumnIndex: 7,
           },
           rule: {
             condition: {

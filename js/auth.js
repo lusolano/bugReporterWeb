@@ -3,7 +3,7 @@ import { Config } from './config.js';
 // TODO: Replace with your Google OAuth 2.0 Web Client ID from Google Cloud Console.
 // The authorized JavaScript origin must match the URL you serve this app from.
 // e.g. http://localhost:8080  or  https://your-domain.com
-export const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+export const GOOGLE_CLIENT_ID = '467106960874-e8jc0agq7pdbh3co1f6rbcrhlt80973k.apps.googleusercontent.com';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/drive',
@@ -13,13 +13,13 @@ const SCOPES = [
 ].join(' ');
 
 let _tokenClient = null;
-let _accessToken  = null;
-let _tokenExpiry  = 0;
+let _accessToken = null;
+let _tokenExpiry = 0;
 
 // Callbacks registered by app.js
-let _onSignIn    = null;
-let _onSignOut   = null;
-let _onError     = null;
+let _onSignIn = null;
+let _onSignOut = null;
+let _onError = null;
 
 export const Auth = {
   /** Load the GIS script and initialize the token client. */
@@ -87,10 +87,10 @@ export const Auth = {
 
   signOut() {
     if (_accessToken) {
-      google.accounts.oauth2.revoke(_accessToken, () => {});
+      google.accounts.oauth2.revoke(_accessToken, () => { });
     }
     _accessToken = null;
-    _tokenExpiry  = 0;
+    _tokenExpiry = 0;
     Config.clearUser();
     _onSignOut?.();
   },
@@ -111,7 +111,7 @@ export const Auth = {
         _tokenClient.callback = original;
         if (response.error) { reject(new Error(response.error)); return; }
         _accessToken = response.access_token;
-        _tokenExpiry  = Date.now() + (parseInt(response.expires_in) - 60) * 1000;
+        _tokenExpiry = Date.now() + (parseInt(response.expires_in) - 60) * 1000;
         resolve(_accessToken);
         original(response);
       };
@@ -121,7 +121,7 @@ export const Auth = {
 
   isReady() { return !!_tokenClient; },
 
-  onSignIn(cb)  { _onSignIn  = cb; },
+  onSignIn(cb) { _onSignIn = cb; },
   onSignOut(cb) { _onSignOut = cb; },
-  onError(cb)   { _onError   = cb; },
+  onError(cb) { _onError = cb; },
 };

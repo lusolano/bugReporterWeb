@@ -381,8 +381,10 @@ async function submitReport() {
 
     // 4. Ensure headers, then append row
     showLoading('Guardando en hoja de cálculo...');
+    const { name: userName, email: userEmail } = Config.getUser();
+    const reportedBy = userName || userEmail || '';
     await Sheets.ensureHeaders(spreadsheetId, sheetName);
-    await Sheets.appendReport({ spreadsheetId, sheetName, ubicacion, comentario, photoFileId, videoFileId });
+    await Sheets.appendReport({ spreadsheetId, sheetName, reportedBy, ubicacion, comentario, photoFileId, videoFileId });
 
     // 5. Done
     Capture.clearMedia();
