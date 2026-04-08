@@ -1,4 +1,4 @@
-const CACHE = 'bug-reporter-v2';
+const CACHE = 'bug-reporter-v3';
 const ASSETS = [
   './index.html',
   './css/app.css',

@@ -226,55 +226,57 @@ let reportMediaType = null;
 let reportUbicacion = '';
 let reportComentario = '';
 
-function startReport(type) {
+/**
+ * Step 1 — fired synchronously inside the button click handler so the
+ * user-gesture chain is preserved and mobile browsers allow the camera picker.
+ * Resets report state, then immediately clicks the hidden file input.
+ */
+function openCameraPicker(type) {
   reportMediaFile = null;
   reportMediaType = type;
   reportUbicacion  = '';
   reportComentario = '';
+
+  const inputId = type === 'photo' ? 'input-photo' : 'input-video';
+  const input   = $(inputId);
+  if (!input) { showToast('Input no encontrado', 'error'); return; }
+  input.value = '';     // reset so selecting the same file fires onchange
+  input.click();
+}
+
+/**
+ * Step 2 — fired when the user picks a file from the camera picker.
+ * Sets up the report screen with the media preview and navigates to it.
+ */
+function onMediaFileSelected(type, file) {
+  if (!file) return;
+  reportMediaFile = file;
+  reportMediaType = type;
+
+  // Reset the report UI now that we're committing to show it
   $('report-transcription-card').style.display = 'none';
   $('report-field-ubicacion').value   = '';
   $('report-field-comentario').value  = '';
-  $('report-media-preview').innerHTML = '';
-  $('report-media-label').textContent = '';
-  $('report-step1-status').textContent = '';
+
+  const url   = URL.createObjectURL(file);
+  const label = type === 'photo' ? '✅ Foto capturada' : '✅ Video capturado';
+  $('report-media-label').innerHTML = `<strong style="color:#2E7D32">${label}</strong>`;
+
+  const preview = $('report-media-preview');
+  preview.innerHTML = '';
+  if (type === 'photo') {
+    const img = document.createElement('img');
+    img.src = url;
+    preview.appendChild(img);
+  } else {
+    const vid = document.createElement('video');
+    vid.src = url;
+    vid.controls = true;
+    vid.playsInline = true;
+    preview.appendChild(vid);
+  }
 
   showScreen('report');
-  captureMedia(type);
-}
-
-async function captureMedia(type) {
-  try {
-    let file;
-    if (type === 'photo') {
-      file = await Capture.pickPhoto();
-    } else {
-      file = await Capture.pickVideo();
-    }
-    reportMediaFile = file;
-
-    const url   = Capture.createPreviewUrl(file);
-    const label = type === 'photo' ? '✅ Foto capturada' : '✅ Video capturado';
-    $('report-media-label').innerHTML = `<strong style="color:#2E7D32">${label}</strong>`;
-
-    const preview = $('report-media-preview');
-    preview.innerHTML = '';
-    if (type === 'photo') {
-      const img = document.createElement('img');
-      img.src = url;
-      preview.appendChild(img);
-    } else {
-      const vid = document.createElement('video');
-      vid.src = url;
-      vid.controls = true;
-      vid.playsInline = true;
-      preview.appendChild(vid);
-    }
-  } catch (e) {
-    if (e.message !== 'No file selected') {
-      showToast('No se capturó ningún archivo', 'error');
-    }
-    showScreen('home');
-  }
 }
 
 let isRecording = false;
@@ -402,8 +404,10 @@ async function submitReport() {
 // ── Wire All Events ───────────────────────────────────────────────────────────
 function wireEvents() {
   // Home
-  $('btn-photo').onclick = () => startReport('photo');
-  $('btn-video').onclick = () => startReport('video');
+  $('btn-photo').onclick = () => openCameraPicker('photo');
+  $('btn-video').onclick = () => openCameraPicker('video');
+  $('input-photo').onchange = e => onMediaFileSelected('photo', e.target.files?.[0]);
+  $('input-video').onchange = e => onMediaFileSelected('video', e.target.files?.[0]);
   $('home-btn-settings').onclick = () => { updateAccountScreen(); showScreen('account'); };
   $('home-btn-config').onclick   = () => { updateConfigScreen(); showScreen('config'); };
 
