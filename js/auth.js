@@ -3,7 +3,7 @@ import { Config } from './config.js';
 // TODO: Replace with your Google OAuth 2.0 Web Client ID from Google Cloud Console.
 // The authorized JavaScript origin must match the URL you serve this app from.
 // e.g. http://localhost:8080  or  https://your-domain.com
-export const GOOGLE_CLIENT_ID = <GOOGLE_CLIENT_ID>;
+export const GOOGLE_CLIENT_ID = '467106960874-7koi8k5regaa2dtso0l7opgqru2i2v1g.apps.googleusercontent.com';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/drive',
