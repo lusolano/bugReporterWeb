@@ -290,13 +290,12 @@ async function toggleRecording() {
     btn.classList.add('recording');
     $('mic-label').textContent = 'Grabando... presione para detener';
 
-    // Start audio recording in background
-    try { await Capture.startAudio(); } catch (e) {
-      console.warn('Audio recording unavailable:', e.message);
-    }
-
-    // Start speech recognition (Android/Chrome)
     if (Speech.isSupported()) {
+      // IMPORTANT: do NOT start MediaRecorder here.
+      // MediaRecorder + SpeechRecognition contend for the microphone on
+      // Chromium-based browsers (Chrome/Opera Android). Starting MediaRecorder
+      // first causes SpeechRecognition to receive no audio — onresult never
+      // fires and the transcript comes back empty.
       try {
         const transcript = await Speech.recognize();
         handleTranscript(transcript);
@@ -309,10 +308,18 @@ async function toggleRecording() {
       }
       await stopRecordingFinal();
     } else {
+      // No Speech API (iOS Safari) — fall back to MediaRecorder so the user
+      // at least gets an audio blob uploaded. Manual entry of the fields is
+      // required; a hint is already shown on the report screen.
+      try { await Capture.startAudio(); } catch (e) {
+        console.warn('Audio recording unavailable:', e.message);
+      }
       showToast('Este navegador no soporta reconocimiento de voz. Escriba el comentario manualmente.', 'error');
       await stopRecordingFinal();
     }
   } else {
+    // Toggle off — stop speech recognition if it's still running.
+    Speech.stop();
     await stopRecordingFinal();
   }
 }

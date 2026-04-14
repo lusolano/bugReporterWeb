@@ -30,12 +30,26 @@ export const Speech = {
         reject(new Error('SpeechRecognition not supported'));
         return;
       }
+      // Guard: some browsers fire onend without onresult or onerror
+      // (e.g. when the microphone is already claimed by MediaRecorder).
+      // Without this, the promise would hang forever.
+      let settled = false;
       this._recognition.onresult = e => {
+        if (settled) return;
+        settled = true;
         const transcript = e.results[0]?.[0]?.transcript || '';
         resolve(transcript);
       };
-      this._recognition.onerror = e => reject(new Error(e.error));
-      this._recognition.onend   = () => {};
+      this._recognition.onerror = e => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(e.error));
+      };
+      this._recognition.onend = () => {
+        if (settled) return;
+        settled = true;
+        resolve('');
+      };
       this._recognition.start();
     });
   },
