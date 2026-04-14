@@ -336,6 +336,7 @@ async function stopRecordingFinal() {
 function handleTranscript(text) {
   if (!text) return;
   const parsed = TranscriptionParser.parse(text);
+  console.log('[transcript]', { raw: text, parsed });
 
   $('report-raw-transcript').textContent = text;
   $('report-transcription-card').style.display = 'block';
