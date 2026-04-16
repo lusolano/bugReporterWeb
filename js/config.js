@@ -33,6 +33,12 @@ export const Config = {
     this._set('FOLDER_NAME', name);
   },
 
+  // The user's email/name are a *display cache only* — populated after a
+  // successful sign-in so the account screen and reporter name can be shown
+  // without a network round-trip. They are NOT a source of truth for the
+  // auth state: on a fresh tab or after the access token expires, the cache
+  // can still be populated while no live session exists. Use
+  // Auth.hasValidToken() to guard anything that makes an API call.
   getUser() {
     return { email: this._get('USER_EMAIL'), name: this._get('USER_NAME') };
   },
@@ -45,7 +51,6 @@ export const Config = {
     this._del('USER_NAME');
   },
 
-  isSignedIn()   { return !!this._get('USER_EMAIL'); },
   isConfigured() {
     return !!(this._get('SPREADSHEET_ID') && this._get('FOLDER_ID'));
   },

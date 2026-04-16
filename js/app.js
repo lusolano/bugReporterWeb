@@ -84,7 +84,7 @@ function updateHomeWarnings() {
   const notConfigured = $('home-warn-config');
   const btns          = $('home-btns');
 
-  const signedIn  = Config.isSignedIn();
+  const signedIn  = Auth.hasValidToken();
   const configured = Config.isConfigured();
 
   notSignedIn.style.display   = signedIn  ? 'none' : 'block';
@@ -96,17 +96,21 @@ function updateHomeWarnings() {
 // ── Account Screen ────────────────────────────────────────────────────────────
 function updateAccountScreen() {
   const user = Config.getUser();
+  const live = Auth.hasValidToken();
+
+  // Show the cached identity whenever we have one — it's useful even without
+  // a live session ("you were signed in as X, tap to continue"). But the
+  // action button must track the live session: Sign Out only makes sense
+  // when there is an actual token to revoke.
   if (user.email) {
     $('account-info').style.display = 'block';
     $('account-email').textContent  = user.email;
     $('account-name').textContent   = user.name || '';
-    $('btn-signout').style.display  = 'block';
-    $('btn-signin').style.display   = 'none';
   } else {
     $('account-info').style.display = 'none';
-    $('btn-signout').style.display  = 'none';
-    $('btn-signin').style.display   = 'block';
   }
+  $('btn-signout').style.display = live ? 'block' : 'none';
+  $('btn-signin').style.display  = live ? 'none'  : 'block';
 }
 
 // ── Config Screen ─────────────────────────────────────────────────────────────
@@ -124,7 +128,7 @@ function updateConfigScreen() {
 
 // ── Sheet Picker ──────────────────────────────────────────────────────────────
 async function openSheetPicker() {
-  if (!Config.isSignedIn()) { showToast('Inicia sesión primero', 'error'); return; }
+  if (!Auth.hasValidToken()) { showToast('Inicia sesión primero', 'error'); return; }
   showLoading('Cargando hojas...');
   try {
     const files = await Drive.listSpreadsheets();
@@ -155,7 +159,7 @@ async function openSheetPicker() {
 
 // ── Folder Picker ─────────────────────────────────────────────────────────────
 async function openFolderPicker() {
-  if (!Config.isSignedIn()) { showToast('Inicia sesión primero', 'error'); return; }
+  if (!Auth.hasValidToken()) { showToast('Inicia sesión primero', 'error'); return; }
   folderNav.length = 0;
   await loadFolderLevel('root', 'Mi Drive');
   openDialog('folder-picker-dialog');
@@ -503,7 +507,7 @@ let _processingQueue = false;
 
 async function processQueue() {
   if (_processingQueue) return;
-  if (!Config.isSignedIn() || !Config.isConfigured()) return;
+  if (!Auth.hasValidToken() || !Config.isConfigured()) return;
   if (!navigator.onLine) return;
 
   _processingQueue = true;

@@ -81,8 +81,11 @@ export const Auth = {
       _onError?.('Google Sign-In no inicializado. Verifique el Client ID.');
       return;
     }
-    // Prompt consent on first sign-in; silent refresh afterwards
-    _tokenClient.requestAccessToken({ prompt: Config.isSignedIn() ? '' : 'consent' });
+    // Skip the consent screen if we've ever signed this user in on this
+    // device (email cache is present). The cache is a UX hint only — the
+    // real source of truth for "is the session live" is hasValidToken().
+    const returning = !!Config.getUser().email;
+    _tokenClient.requestAccessToken({ prompt: returning ? '' : 'consent' });
   },
 
   signOut() {
@@ -120,6 +123,17 @@ export const Auth = {
   },
 
   isReady() { return !!_tokenClient; },
+
+  /**
+   * True only when there is an in-memory access token that hasn't expired.
+   * This is the authoritative check for "can we make an API call right now?".
+   * The email cache in Config is a display hint, not a source of truth — on a
+   * fresh tab or after the 1-hour token lifetime, the cache can still be
+   * populated while this returns false. Callers guarding API calls or
+   * updating UI that depends on a live session MUST use this, not
+   * Config.getUser().email.
+   */
+  hasValidToken() { return !!_accessToken && Date.now() < _tokenExpiry; },
 
   onSignIn(cb) { _onSignIn = cb; },
   onSignOut(cb) { _onSignOut = cb; },
