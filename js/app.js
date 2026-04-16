@@ -4,6 +4,7 @@ import { Drive }  from './drive.js';
 import { Sheets } from './sheets.js';
 import { Capture } from './capture.js';
 import { Speech, TranscriptionParser } from './speech.js';
+import { Queue, isNetworkError } from './queue.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -49,6 +50,7 @@ async function init() {
     updateAccountScreen();
     updateHomeWarnings();
     showToast('Sesión iniciada', 'success');
+    processQueue().catch(e => console.error('Queue drain after sign-in failed:', e));
   });
   Auth.onSignOut(() => {
     updateAccountScreen();
@@ -64,6 +66,15 @@ async function init() {
   updateConfigScreen();
   updateHomeWarnings();
   showScreen('home');
+
+  // Offline queue: refresh chip whenever items are added or removed, and
+  // drain the queue both right now and every time the browser comes back online.
+  Queue.onChange(() => updatePendingChip());
+  updatePendingChip();
+  window.addEventListener('online', () => {
+    processQueue().catch(e => console.error('Queue drain on online event failed:', e));
+  });
+  processQueue().catch(e => console.error('Queue drain on boot failed:', e));
 }
 
 // ── Home Screen ───────────────────────────────────────────────────────────────
@@ -345,6 +356,46 @@ function handleTranscript(text) {
   if (parsed.comentario) $('report-field-comentario').value = parsed.comentario;
 }
 
+/**
+ * Actually perform the uploads. Works for both a fresh submit and a queued
+ * retry — queued items restore `mediaBlob` from IndexedDB (a Blob, not a File),
+ * so we reconstruct a File here with the saved name so Drive.upload* helpers
+ * can derive the extension.
+ */
+async function performUpload(payload) {
+  const { mediaBlob, mediaName, mediaType, audioBlob, audioExt, ubicacion, comentario, cfg } = payload;
+  const { spreadsheetId, folderId, sheetName, reportedBy } = cfg;
+
+  showLoading('Preparando carpeta del día...');
+  const daily = await Drive.getOrCreateDailyFolder(folderId);
+
+  showLoading('Subiendo archivo...');
+  let photoFileId = null;
+  let videoFileId = null;
+
+  const mediaFile = mediaBlob instanceof File
+    ? mediaBlob
+    : new File([mediaBlob], mediaName, { type: mediaBlob.type || '' });
+
+  if (mediaType === 'photo') {
+    const uploaded = await Drive.uploadImage(mediaFile, daily.id);
+    photoFileId = uploaded.id;
+    await Drive.makePublic(photoFileId).catch(() => {});
+  } else {
+    const uploaded = await Drive.uploadVideo(mediaFile, daily.id);
+    videoFileId = uploaded.id;
+  }
+
+  if (audioBlob) {
+    showLoading('Subiendo audio...');
+    await Drive.uploadAudio(audioBlob, audioExt || 'webm', daily.id);
+  }
+
+  showLoading('Guardando en hoja de cálculo...');
+  await Sheets.ensureHeaders(spreadsheetId, sheetName);
+  await Sheets.appendReport({ spreadsheetId, sheetName, reportedBy, ubicacion, comentario, photoFileId, videoFileId });
+}
+
 async function submitReport() {
   const ubicacion   = $('report-field-ubicacion').value.trim();
   const comentario  = $('report-field-comentario').value.trim();
@@ -367,42 +418,28 @@ async function submitReport() {
     return;
   }
 
+  const { name: userName, email: userEmail } = Config.getUser();
+  const reportedBy = userName || userEmail || '';
+
+  const audioBlob = Capture.getAudioBlob();
+  const audioExt  = audioBlob ? Capture.getAudioExtension() : null;
+
+  // Capture a full snapshot — if this needs to go to the offline queue, we
+  // must retain everything needed to retry later even if the user changes
+  // config or signs into a different account in between.
+  const payload = {
+    mediaBlob: reportMediaFile,
+    mediaName: reportMediaFile.name || `capture.${reportMediaType === 'photo' ? 'jpg' : 'mp4'}`,
+    mediaType: reportMediaType,
+    audioBlob,
+    audioExt,
+    ubicacion, comentario,
+    cfg: { spreadsheetId, folderId, sheetName, reportedBy },
+  };
+
   showLoading('Enviando reporte...');
   try {
-    // 1. Get/create today's subfolder
-    showLoading('Preparando carpeta del día...');
-    const daily = await Drive.getOrCreateDailyFolder(folderId);
-
-    // 2. Upload media
-    showLoading('Subiendo archivo...');
-    let photoFileId = null;
-    let videoFileId = null;
-
-    if (reportMediaType === 'photo') {
-      const uploaded = await Drive.uploadImage(reportMediaFile, daily.id);
-      photoFileId = uploaded.id;
-      await Drive.makePublic(photoFileId).catch(() => {});
-    } else {
-      const uploaded = await Drive.uploadVideo(reportMediaFile, daily.id);
-      videoFileId = uploaded.id;
-    }
-
-    // 3. Upload audio if available
-    const audioBlob = Capture.getAudioBlob();
-    if (audioBlob) {
-      showLoading('Subiendo audio...');
-      const ext = Capture.getAudioExtension();
-      await Drive.uploadAudio(audioBlob, ext, daily.id);
-    }
-
-    // 4. Ensure headers, then append row
-    showLoading('Guardando en hoja de cálculo...');
-    const { name: userName, email: userEmail } = Config.getUser();
-    const reportedBy = userName || userEmail || '';
-    await Sheets.ensureHeaders(spreadsheetId, sheetName);
-    await Sheets.appendReport({ spreadsheetId, sheetName, reportedBy, ubicacion, comentario, photoFileId, videoFileId });
-
-    // 5. Done
+    await performUpload(payload);
     Capture.clearMedia();
     Capture.clearAudio();
     hideLoading();
@@ -410,8 +447,75 @@ async function submitReport() {
     showScreen('home');
   } catch (e) {
     hideLoading();
-    showToast('Error: ' + e.message, 'error');
-    console.error(e);
+    if (isNetworkError(e)) {
+      try {
+        await Queue.enqueue(payload);
+        Capture.clearMedia();
+        Capture.clearAudio();
+        showToast('Sin conexión. Reporte guardado para reintentar.', 'success');
+        showScreen('home');
+      } catch (qErr) {
+        showToast('Error al guardar localmente: ' + qErr.message, 'error');
+        console.error(qErr);
+      }
+    } else {
+      showToast('Error: ' + e.message, 'error');
+      console.error(e);
+    }
+  }
+}
+
+// ── Offline queue drain ───────────────────────────────────────────────────────
+let _processingQueue = false;
+
+async function processQueue() {
+  if (_processingQueue) return;
+  if (!Config.isSignedIn() || !Config.isConfigured()) return;
+  if (!navigator.onLine) return;
+
+  _processingQueue = true;
+  try {
+    const items = await Queue.getAll();
+    if (!items.length) return;
+
+    let uploaded = 0;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      try {
+        showLoading(`Enviando pendiente ${i + 1}/${items.length}...`);
+        await performUpload(item);
+        await Queue.remove(item.id);
+        uploaded++;
+      } catch (err) {
+        if (isNetworkError(err)) break; // back offline — try again later
+        // Non-network failure: drop so it doesn't block the queue forever.
+        console.error('Queued report failed, dropping:', err);
+        await Queue.remove(item.id);
+      }
+    }
+    hideLoading();
+    if (uploaded > 0) {
+      const remaining = await Queue.count();
+      const msg = remaining === 0
+        ? 'Reportes pendientes enviados'
+        : `${uploaded} enviado(s), ${remaining} pendiente(s)`;
+      showToast(msg, remaining === 0 ? 'success' : '');
+    }
+  } finally {
+    _processingQueue = false;
+  }
+}
+
+async function updatePendingChip() {
+  const chip = $('home-pending-chip');
+  if (!chip) return;
+  const n = await Queue.count().catch(() => 0);
+  if (n > 0) {
+    chip.style.display = 'inline-flex';
+    $('home-pending-chip-text').textContent =
+      n === 1 ? '1 reporte pendiente' : `${n} reportes pendientes`;
+  } else {
+    chip.style.display = 'none';
   }
 }
 
@@ -420,6 +524,9 @@ function wireEvents() {
   // Home
   $('btn-photo').onclick = () => openCameraPicker('photo');
   $('btn-video').onclick = () => openCameraPicker('video');
+  $('home-pending-chip').onclick = () => {
+    processQueue().catch(e => console.error('Manual queue drain failed:', e));
+  };
   $('input-photo').onchange = e => onMediaFileSelected('photo', e.target.files?.[0]);
   $('input-video').onchange = e => onMediaFileSelected('video', e.target.files?.[0]);
   $('home-btn-settings').onclick = () => { updateAccountScreen(); showScreen('account'); };

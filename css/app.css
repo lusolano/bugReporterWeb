@@ -429,6 +429,36 @@ html, body {
   margin-bottom: 4px;
 }
 
+/* === Pending queue chip === */
+.pending-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #FFF3E0;
+  border: 1px solid #FFB74D;
+  color: #5D4037;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 auto 16px;
+  cursor: pointer;
+  transition: background .15s, transform .1s;
+}
+.pending-chip:hover  { background: #FFE0B2; }
+.pending-chip:active { transform: scale(0.97); }
+.pending-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #FF6B35;
+  animation: pending-pulse 1.4s ease-in-out infinite;
+}
+@keyframes pending-pulse {
+  0%,100% { opacity: 1; }
+  50%     { opacity: 0.35; }
+}
+
 /* === Home Screen hero === */
 .home-hero {
   width: 100%;
