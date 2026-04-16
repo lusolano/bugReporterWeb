@@ -18,6 +18,44 @@ async function apiFetch(url, options = {}) {
   return resp.json();
 }
 
+/**
+ * PATCH `body` to `url` via XMLHttpRequest so we can expose upload progress.
+ * fetch() has no upload progress API in any browser, so for media uploads we
+ * drop to XHR. Resolves with the parsed JSON body, rejects with an Error whose
+ * message matches isNetworkError() for connection failures so the offline
+ * queue still triggers.
+ */
+function xhrPatchJSON(url, body, headers, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PATCH', url);
+    for (const [k, v] of Object.entries(headers || {})) xhr.setRequestHeader(k, v);
+
+    if (onProgress && xhr.upload) {
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total);
+      };
+      xhr.upload.onload = () => onProgress(1);
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText || '{}')); }
+        catch (e) { reject(new Error(`Upload returned invalid JSON: ${e.message}`)); }
+      } else {
+        reject(new Error(`Upload content failed (${xhr.status}): ${xhr.responseText || ''}`));
+      }
+    };
+    // "Network error" / "network error" both match isNetworkError() regex,
+    // so a mid-upload disconnect still routes into the offline queue.
+    xhr.onerror   = () => reject(new Error('Network error during upload'));
+    xhr.ontimeout = () => reject(new Error('Network error: upload timed out'));
+    xhr.onabort   = () => reject(new Error('Upload aborted'));
+
+    xhr.send(body);
+  });
+}
+
 export const Drive = {
   // ── Spreadsheet picker ────────────────────────────────────────────────────
   async listSpreadsheets() {
@@ -81,7 +119,10 @@ export const Drive = {
   // NOTE: We can't use FormData + uploadType=multipart because FormData sets
   // Content-Type to multipart/form-data, but Drive requires multipart/related.
   // Two-step is simpler and works reliably in all browsers.
-  async uploadFile(file, fileName, parentFolderId) {
+  //
+  // `onProgress` (optional) receives a 0..1 fraction during the content PATCH
+  // step. Metadata creation is tiny and not reported.
+  async uploadFile(file, fileName, parentFolderId, onProgress) {
     const token = await Auth.getAccessToken();
 
     // Step 1: Create file metadata (returns the file ID).
@@ -99,37 +140,33 @@ export const Drive = {
     }
     const created = await createResp.json();  // {id, name}
 
-    // Step 2: Upload the raw file contents into that file ID.
-    const uploadResp = await fetch(`${UPLOAD}/files/${created.id}?uploadType=media&fields=id,name,webViewLink`, {
-      method: 'PATCH',
-      headers: {
+    // Step 2: Upload the raw file contents via XHR (so we can report progress).
+    return xhrPatchJSON(
+      `${UPLOAD}/files/${created.id}?uploadType=media&fields=id,name,webViewLink`,
+      file,
+      {
         Authorization: `Bearer ${token}`,
         'Content-Type': file.type || 'application/octet-stream',
       },
-      body: file,
-    });
-    if (!uploadResp.ok) {
-      const body = await uploadResp.text().catch(() => '');
-      throw new Error(`Upload content failed (${uploadResp.status}): ${body}`);
-    }
-    return uploadResp.json();  // {id, name, webViewLink}
+      onProgress,
+    );
   },
 
-  uploadImage(file, parentFolderId) {
+  uploadImage(file, parentFolderId, onProgress) {
     const ext = file.name.split('.').pop() || 'jpg';
     const name = `foto_${Date.now()}.${ext}`;
-    return this.uploadFile(file, name, parentFolderId);
+    return this.uploadFile(file, name, parentFolderId, onProgress);
   },
 
-  uploadVideo(file, parentFolderId) {
+  uploadVideo(file, parentFolderId, onProgress) {
     const ext = file.name.split('.').pop() || 'mp4';
     const name = `video_${Date.now()}.${ext}`;
-    return this.uploadFile(file, name, parentFolderId);
+    return this.uploadFile(file, name, parentFolderId, onProgress);
   },
 
-  uploadAudio(blob, ext, parentFolderId) {
+  uploadAudio(blob, ext, parentFolderId, onProgress) {
     const file = new File([blob], `audio_${Date.now()}.${ext}`, { type: blob.type });
-    return this.uploadFile(file, file.name, parentFolderId);
+    return this.uploadFile(file, file.name, parentFolderId, onProgress);
   },
 
   // ── Make a file publicly readable so =IMAGE() works in Sheets ─────────────

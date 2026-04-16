@@ -20,6 +20,7 @@ function showLoading(text = 'Cargando...') {
   $('loading-text').textContent = text;
   $('loading-overlay').classList.add('open');
 }
+function setLoadingText(text) { $('loading-text').textContent = text; }
 function hideLoading() { $('loading-overlay').classList.remove('open'); }
 
 function showToast(msg, type = '') {
@@ -357,6 +358,21 @@ function handleTranscript(text) {
 }
 
 /**
+ * Build an onProgress callback that rewrites the loading-overlay text in
+ * place as bytes stream up. Throttled to whole-percent deltas so we don't
+ * thrash the DOM on every XHR progress event.
+ */
+function makeProgressReporter(label) {
+  let last = -1;
+  return fraction => {
+    const pct = Math.min(100, Math.max(0, Math.floor(fraction * 100)));
+    if (pct === last) return;
+    last = pct;
+    setLoadingText(`${label} ${pct}%`);
+  };
+}
+
+/**
  * Actually perform the uploads. Works for both a fresh submit and a queued
  * retry — queued items restore `mediaBlob` from IndexedDB (a Blob, not a File),
  * so we reconstruct a File here with the saved name so Drive.upload* helpers
@@ -369,7 +385,6 @@ async function performUpload(payload) {
   showLoading('Preparando carpeta del día...');
   const daily = await Drive.getOrCreateDailyFolder(folderId);
 
-  showLoading('Subiendo archivo...');
   let photoFileId = null;
   let videoFileId = null;
 
@@ -378,17 +393,19 @@ async function performUpload(payload) {
     : new File([mediaBlob], mediaName, { type: mediaBlob.type || '' });
 
   if (mediaType === 'photo') {
-    const uploaded = await Drive.uploadImage(mediaFile, daily.id);
+    showLoading('Subiendo foto... 0%');
+    const uploaded = await Drive.uploadImage(mediaFile, daily.id, makeProgressReporter('Subiendo foto...'));
     photoFileId = uploaded.id;
     await Drive.makePublic(photoFileId).catch(() => {});
   } else {
-    const uploaded = await Drive.uploadVideo(mediaFile, daily.id);
+    showLoading('Subiendo video... 0%');
+    const uploaded = await Drive.uploadVideo(mediaFile, daily.id, makeProgressReporter('Subiendo video...'));
     videoFileId = uploaded.id;
   }
 
   if (audioBlob) {
-    showLoading('Subiendo audio...');
-    await Drive.uploadAudio(audioBlob, audioExt || 'webm', daily.id);
+    showLoading('Subiendo audio... 0%');
+    await Drive.uploadAudio(audioBlob, audioExt || 'webm', daily.id, makeProgressReporter('Subiendo audio...'));
   }
 
   showLoading('Guardando en hoja de cálculo...');
@@ -396,7 +413,14 @@ async function performUpload(payload) {
   await Sheets.appendReport({ spreadsheetId, sheetName, reportedBy, ubicacion, comentario, photoFileId, videoFileId });
 }
 
+// Guard against double-taps / double-clicks while the async upload is
+// in flight. Without this the user can fire two uploads of the same media
+// on a slow connection, producing duplicate files and duplicate sheet rows.
+let isSubmitting = false;
+
 async function submitReport() {
+  if (isSubmitting) return;
+
   const ubicacion   = $('report-field-ubicacion').value.trim();
   const comentario  = $('report-field-comentario').value.trim();
 
@@ -437,16 +461,20 @@ async function submitReport() {
     cfg: { spreadsheetId, folderId, sheetName, reportedBy },
   };
 
+  isSubmitting = true;
+  const submitBtn = $('report-submit');
+  const originalLabel = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Enviando...';
+
   showLoading('Enviando reporte...');
   try {
     await performUpload(payload);
     Capture.clearMedia();
     Capture.clearAudio();
-    hideLoading();
     showToast('¡Reporte enviado!', 'success');
     showScreen('home');
   } catch (e) {
-    hideLoading();
     if (isNetworkError(e)) {
       try {
         await Queue.enqueue(payload);
@@ -462,6 +490,11 @@ async function submitReport() {
       showToast('Error: ' + e.message, 'error');
       console.error(e);
     }
+  } finally {
+    hideLoading();
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+    isSubmitting = false;
   }
 }
 

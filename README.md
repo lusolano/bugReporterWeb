@@ -12,6 +12,7 @@ Works on both **iOS** and **Android** from the browser.
 - Record audio descriptions with automatic speech-to-text (Android/Chrome)
 - Auto-parses transcripts into "Ubicación" and "Comentario" fields
 - Uploads media to a configurable Google Drive folder (with daily subfolders)
+- Live upload-progress percentage during long video uploads
 - Appends rows to a configurable Google Sheet with `=IMAGE()` previews
 - Dropdown column for resolution status
 - Installable as a PWA on iOS and Android home screens
